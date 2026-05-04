@@ -7,3 +7,6 @@ shap
 matplotlib
 seaborn
 jupyter
+sentence-transformers
+torch
+torchvision
