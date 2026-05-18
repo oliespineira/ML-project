@@ -42,9 +42,9 @@ ml-movies-model/
 │   ├── optuna_history.png
 │   ├── error_distribution.png
 │   ├── temporal_split.png
+│   ├── model_comparison_full.png
+│   ├── residual_diversity.png
 │   └── eda_*.png
-├── model_comparison_full.png   # full model comparison chart
-├── residual_diversity.png      # residual correlation scatter plot
 └── catboost_info/              # catboost training artifacts
 ```
 
