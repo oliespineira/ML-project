@@ -91,7 +91,7 @@ Used for: directors, writers, top-billed cast, and talent-history features.
 
 Downloaded dynamically from the TMDB CDN:
 
-```
+```text
 https://image.tmdb.org/t/p/w342/{poster_path}
 ```
 
@@ -183,18 +183,23 @@ The pipeline includes memory diagnostics, embedding caching, garbage collection,
 ## Machine Learning Pipeline Overview
 
 ### 1. Data Acquisition
+
 Loading TMDB and IMDb records, poster retrieval, and reproducible project paths.
 
 ### 2. Pre-Cleaning EDA
+
 Missing-value analysis, duplicate detection, financial outlier inspection, and language/country distributions.
 
 ### 3. Data Merging
+
 TMDB ↔ IMDb joins, director and cast mapping, and ID consistency validation.
 
 ### 4. Data Cleaning
+
 Removing unreleased films and invalid financial records, deduplicating titles, enforcing structural completeness, and defining supervised targets.
 
 ### 5. Leakage Prevention
+
 Explicit exclusion of `vote_count`, `vote_average`, and `popularity`. Temporal split ordered chronologically by release date: 70% train / 15% validation / 15% test.
 
 ### 6. Feature Engineering
@@ -210,9 +215,11 @@ Explicit exclusion of `vote_count`, `vote_average`, and `popularity`. Temporal s
 **Talent-history features:** leakage-safe historical statistics (director median revenue, cast median revenue) computed strictly from past films only.
 
 ### 7. Modeling
+
 Ridge Regression, LightGBM, XGBoost, CatBoost, Stacking Ensemble, and Weighted Average Ensemble.
 
 ### 8. Interpretability
+
 SHAP importance analysis, beeswarm plots, residual analysis, and ablation studies.
 
 ---
