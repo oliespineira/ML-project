@@ -1,181 +1,301 @@
 # Film Revenue Prediction
 
-A multimodal machine learning project that predicts pre-release film box-office revenue using structured metadata, text embeddings, poster image embeddings, and talent track-records.
+**Machine Learning Foundations — IE University**
+Prof. Matteo Turilli
 
-**Primary artifact:** [`notebook.ipynb`](notebook.ipynb) — a single self-contained Jupyter notebook covering the full ML pipeline across 33 numbered sections.
+A complete multimodal machine learning pipeline for **pre-release film revenue prediction** using structured metadata, synopsis embeddings, poster embeddings, and talent-history features.
+
+The project investigates a central machine learning engineering question:
+
+> *What matters more for pre-release prediction performance: richer feature representations or more expressive model families?*
+
+The pipeline combines:
+
+- TMDB financial and metadata records
+- IMDb structured talent information
+- MPNet synopsis embeddings
+- CLIP poster embeddings
+- Temporal leakage-safe talent-history features
+
+and evaluates:
+
+- Ridge Regression
+- LightGBM
+- XGBoost
+- CatBoost
+- Multiple ensemble strategies
 
 ---
 
-## Research Question
+## Final Results
 
-> What matters more for pre-release revenue prediction: feature representation or model choice?
+| Model                     | Test RMSE ↓ | Test R² ↑ |
+| ------------------------- | ----------: | --------: |
+| Ridge baseline            |       2.167 |     0.358 |
+| LightGBM v1               |       1.775 |     0.652 |
+| LightGBM v2               |       1.749 |     0.662 |
+| XGBoost                   |       1.718 |     0.675 |
+| CatBoost                  |       1.738 |     0.668 |
+| Weighted Average Ensemble |   **1.711** | **0.678** |
+| Stacking Ensemble         |       1.712 |     0.677 |
 
-**Primary target:** `y = log1p(revenue)` — log-transforming revenue compresses the heavy right tail (thousands to billions of dollars) so every film contributes meaningfully to training rather than being dominated by blockbusters.
+**Best overall model:** Weighted Average Ensemble — Test RMSE: **1.711** | Test R²: **0.678**
 
-**Derived classification target:** `profitable = 1[revenue > 1.5 × budget]` — evaluates whether the model can identify profitable films as a secondary task.
+---
+
+## Key Findings
+
+1. **Feature engineering contributed the largest gains.** Most performance improvement came from multimodal feature representations rather than from switching algorithms.
+
+2. **Gradient boosting dramatically outperformed linear baselines.** Ridge regression explained ~36% of revenue variance; multimodal boosted models explained ~68%.
+
+3. **Poster embeddings helped tree-based models more than linear models.** Visual features provided modest but measurable improvements for LightGBM.
+
+4. **Ensembling provided limited gains.** Residual correlations between models remained very high (0.97–0.98), limiting ensemble diversity.
+
+5. **A substantial irreducible noise floor remains.** Word-of-mouth, critical reception, release competition, and cultural timing are fundamentally unknowable before release.
 
 ---
 
 ## Repository Structure
 
-```
-ml-movies-model/
-├── notebook.ipynb              # full pipeline (198 cells, 33 sections)
-├── requirements.txt            # python dependencies
-├── ml_project.pdf              # project report
+```text
+.
+├── notebook.ipynb          # Main project notebook (full end-to-end ML pipeline)
+├── outputs/                # Saved plots, embeddings, and figures
 ├── data/
-│   ├── raw/                    # raw input files (not committed — see Data Sources)
-│   │   ├── TMDB_movie_dataset_v11.csv
-│   │   ├── title.crew.tsv.csv
-│   │   ├── title.principals.tsv.csv
-│   │   └── name.basics.tsv.csv
-│   └── processed/              # pre-computed embedding caches (committed to repo)
-│       ├── synopsis_embeddings.npy / synopsis_ids.npy
-│       ├── synopsis_embeddings_mpnet.npy / synopsis_ids_mpnet.npy
-│       ├── poster_embeddings_clip.npy / poster_ids_clip.npy
-│       └── poster_checkpoint_clip.npz
-├── outputs/                    # saved plots
-│   ├── poster_pca_scree.png
-│   ├── shap_bar.png / shap_beeswarm.png
-│   ├── ablation_r2_bar.png
-│   ├── baseline_vs_improved.png
-│   ├── optuna_history.png
-│   ├── error_distribution.png
-│   ├── temporal_split.png
-│   ├── model_comparison_full.png
-│   ├── residual_diversity.png
-│   └── eda_*.png
-└── catboost_info/              # catboost training artifacts
+│   └── raw/                # TMDB + IMDb datasets
+├── README.md
+└── requirements.txt        # Python dependencies
 ```
 
 ---
 
-## Data Sources
+## Dataset Sources
 
-| Source | File | Contents |
-|---|---|---|
-| TMDB (Kaggle) | `TMDB_movie_dataset_v11.csv` | Budget, revenue, genres, overview, poster URL, language, production country — ~1.4M entries |
-| IMDb non-commercial | `title.crew.tsv.csv` | Director and writer IDs per title |
-| IMDb non-commercial | `title.principals.tsv.csv` | Top-billed cast per title |
-| IMDb non-commercial | `name.basics.tsv.csv` | Resolves person IDs to names |
+### 1. TMDB Dataset (Kaggle)
 
-TMDB provides financial and textual data; IMDb provides structured, reliable talent attribution. Neither source alone is sufficient — TMDB's talent fields are inconsistent text strings, while IMDb has clean person IDs but no financial data.
+Used for: budget, revenue, runtime, genres, release date, overview text, poster paths, and production metadata.
 
----
+- `TMDB_movie_dataset_v11.csv`
 
-## Pipeline Walkthrough
+### 2. IMDb Non-Commercial Datasets
 
-The notebook is divided into 33 numbered sections. Below is a section-by-section summary grouped by phase.
+Used for: directors, writers, top-billed cast, and talent-history features.
 
-### Phase 1 — Data (Sections 2–6)
+- `title.crew.tsv`
+- `title.principals.tsv`
+- `name.basics.tsv`
 
-| Section | What it does |
-|---|---|
-| 2 | **Data acquisition** — loads TMDB CSV and three IMDb TSV files |
-| 3 | **Pre-cleaning EDA** — inspects missingness, duplicates, financial outliers, runtime/language/country distributions before any filtering |
-| 4 | **Data merging** — left-joins TMDB to IMDb on `imdb_id → tconst`; resolves `nconst` person IDs to names for directors and top cast |
-| 5 | **Data cleaning** — filters to released non-adult films with valid budget/revenue; removes placeholder zeros; enforces structural completeness (no missing title/date/genre); defines regression and classification targets |
-| 6 | **Post-cleaning EDA** — validates distributions on the cleaned modeling frame |
+### 3. Poster Images
 
-### Phase 2 — Split & Leakage (Sections 7–8)
+Downloaded dynamically from the TMDB CDN:
 
-| Section | What it does |
-|---|---|
-| 7 | **Temporal train/val/test split** — sorts by `release_date` and cuts chronologically. This simulates real deployment: the model is trained on historical films and predicts future ones. Random splitting would allow training on 2019 data to predict 2018 films, which is unrealistic. |
-| 8 | **Data leakage analysis** — identifies post-release signals (`vote_average`, `vote_count`, `popularity`) that inflate R² artificially. A demonstration trains two Ridge models (with/without these columns) to quantify the inflation. These columns are excluded from all real features. |
-
-### Phase 3 — Feature Engineering (Sections 9–10)
-
-| Modality | Features | Dimensionality |
-|---|---|---|
-| Structured metadata | `log_budget`, `runtime`, `release_month`, `release_year`, `is_english` | ~5 |
-| Genre indicators | One-hot encoded genres (vocabulary fixed on train set) | ~20 |
-| Talent features | Expanding median of director's and lead cast's prior films' log-revenue (ordered by release date; median used over mean for robustness to breakout hits) | 2 |
-| Synopsis embeddings | `all-MiniLM-L6-v2` sentence transformer; cached to disk | 384-dim |
-| Poster embeddings | ResNet18 (classification head removed) applied to downloaded TMDB poster images; cached to disk. Replaced by CLIP (`openai/clip-vit-base-patch32`) in the improvements phase — see below. | 512-dim |
-
-Section 10 **fuses all modalities** by horizontal concatenation into one design matrix (early fusion), allowing any downstream model to learn cross-modal interactions.
-
-### Phase 4 — Baseline & Evaluation (Sections 11–17)
-
-| Section | What it does |
-|---|---|
-| 11 | **Baseline model** — Ridge regression on structured metadata only; establishes the performance floor |
-| 12 | **Evaluation metrics** — defines helpers used throughout: RMSE, MAE, R² for regression; precision, recall, F1, AUC for profitability classification |
-| 13 | **Model selection + LightGBM** — compares Ridge vs LightGBM on the full feature matrix; LightGBM uses early stopping (patience = 50 rounds) on the val set |
-| 14 | **Ablation study** — adds modalities one at a time (structured → +genre → +talent → +synopsis → +poster) using a fixed Ridge model so only the features vary |
-| 15 | **Interpretability with SHAP** — `TreeExplainer` on the LightGBM model; produces bar and beeswarm plots of feature importance |
-| 16 | **Error analysis** — identifies films with the largest prediction errors to understand systematic failure modes |
-| 17 | **Final evaluation on test set** — test set used exactly once; all model selection and hyperparameter decisions were made on the val set only |
-
-### Phase 5 — Improvements (Sections 18–22)
-
-Four targeted improvements over the baseline LightGBM:
-
-1. **Inflation-adjusted budget** — applies approximate US CPI indices (anchored to 2020 = 100) so the model reasons about real spending power rather than nominal dollars. This addresses the val/test RMSE gap caused by distribution shift over time.
-2. **CLIP poster embeddings + PCA** — replaces ResNet18 with `openai/clip-vit-base-patch32`. ResNet18 was pretrained on ImageNet object categories (cats, cars, furniture) and does not capture cinematic signals; CLIP was trained on image–text pairs and learns visual features that align with language and genre concepts. The resulting 512-dim CLIP vectors are then reduced to 50 components via PCA (~80% variance retained) to remove noise and prevent the poster dimensions from drowning out more informative features.
-3. **Upgraded synopsis embeddings** — replaces `all-MiniLM-L6-v2` (384-dim, speed-optimised) with `all-mpnet-base-v2` (768-dim, higher accuracy on semantic benchmarks). Cached separately.
-4. **Optuna hyperparameter tuning** — Bayesian optimisation (TPE sampler) over 50 trials, each training LightGBM with early stopping on the val set; objective is to minimise val RMSE.
-5. **Dedicated profitability classifier** — a separate LightGBM classifier trained directly on the binary `profitable` label, instead of thresholding predicted log-revenue.
-
-Sections 20–22 evaluate the improved model on the test set and produce a side-by-side comparison table with delta and % change columns.
-
-### Phase 6 — Ensemble (Sections 23–33)
-
-**Motivation (Section 23):** The LightGBM v2 model reaches test R² = 0.662 / RMSE = 1.749. A single model learns one set of decision boundaries and cannot hedge its own blind spots. Combining models whose errors are not perfectly correlated can push past this ceiling.
-
-| Section | What it does |
-|---|---|
-| 24 | Adds XGBoost and CatBoost to the environment; creates a combined train+val pool for OOF stacking |
-| 25 | **XGBoost** — level-wise tree growth; second-order gradients; Optuna-tuned (50 trials). Val RMSE ≈ 1.582, nearly tied with LightGBM v2. |
-| 26 | **CatBoost** — ordered boosting (eliminates within-round target leakage); symmetric trees; Optuna-tuned |
-| 27 | **Residual diversity analysis** — computes pairwise residual correlations between the three models. Low correlation confirms the models make different errors, justifying ensembling. |
-| 28 | **Stacking ensemble** — 5-fold out-of-fold (OOF) meta-learner. Base models generate OOF predictions on train+val; a Ridge meta-learner is trained on these. OOF is used instead of direct val-set stacking to prevent the meta-learner from overfitting to a single held-out fold. |
-| 29 | **Weighted average ensemble** — `scipy.optimize.minimize` finds the convex combination of the three models' predictions that minimises val RMSE; simpler and interpretable alternative to stacking. |
-| 30 | **Final ensemble test evaluation** — both ensemble strategies evaluated on the test set (used once) |
-| 31 | **Full model comparison** — table and visualisation covering every model from Ridge baseline through all three ensembles |
-| 32 | **Poster embedding ablation** — ablates poster features specifically on LightGBM to answer whether ResNet18 embeddings help or add noise |
-| 33 | **Final pitfalls checklist** — automated assertions verify data integrity guarantees across all models |
+```text
+https://image.tmdb.org/t/p/w342/{poster_path}
+```
 
 ---
 
-## Models Summary
+## How to Run the Project
 
-| Model | Type | Key characteristic |
-|---|---|---|
-| Ridge | Linear | Baseline; structured features only |
-| LightGBM | Gradient boosting | Leaf-wise growth; early stopping |
-| LightGBM v2 | Gradient boosting | + CPI budget, PCA poster, mpnet synopsis, Optuna tuning |
-| LightGBM classifier | Gradient boosting | Dedicated binary profitability classifier |
-| XGBoost | Gradient boosting | Level-wise growth; second-order gradients |
-| CatBoost | Gradient boosting | Ordered boosting; symmetric trees |
-| Stacking ensemble | Meta-learner | 5-fold OOF Ridge over the three boosters |
-| Weighted ensemble | Convex combination | Scipy-optimised weights over the three boosters |
-
----
-
-## Setup & Running
+### Step 1 — Clone the repository
 
 ```bash
-# create a virtual environment and install dependencies
-pip install -r requirements.txt
-
-# open the notebook
-jupyter notebook notebook.ipynb
+git clone <repo-url>
+cd <repo-folder>
 ```
 
-> **Note:** All pre-computed embedding caches (`.npy` files) are committed to the repository under `data/processed/`. This includes both synopsis embeddings (MiniLM and MPNet) and poster embeddings (CLIP). No re-computation is needed — the notebook loads them from disk automatically.
+### Step 2 — Create a virtual environment
+
+**macOS / Linux:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+**Windows:**
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+### Step 3 — Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+If `requirements.txt` is unavailable, install manually:
+
+```bash
+pip install pandas numpy scikit-learn matplotlib seaborn lightgbm xgboost catboost shap sentence-transformers transformers torch optuna
+```
+
+### Step 4 — Download and place the required data files
+
+Create the following directory structure at the project root and place the downloaded datasets inside it:
+
+```text
+data/
+└── raw/
+    ├── TMDB_movie_dataset_v11.csv
+    ├── title.crew.tsv
+    ├── title.principals.tsv
+    └── name.basics.tsv
+```
+
+- **TMDB dataset:** download `TMDB_movie_dataset_v11.csv` from [Kaggle](https://www.kaggle.com/)
+- **IMDb datasets:** download the `.tsv` files from [IMDb Non-Commercial Datasets](https://developer.imdb.com/non-commercial-datasets/)
+
+### Step 5 — Launch the notebook
+
+```bash
+jupyter notebook
+```
+
+Open `notebook.ipynb` and run cells sequentially from top to bottom.
+
+**Important notes before running:**
+
+- Embedding generation (synopsis + poster) can take significant time on first run; embeddings are cached to disk automatically and loaded on subsequent runs.
+- Poster downloads require an active internet connection.
+- Later pipeline stages (XGBoost, CatBoost, ensembles, SHAP) require all earlier cells to have run successfully.
 
 ---
 
-## Key Results
+## Hardware and Runtime Notes
 
-| Model | Val RMSE | Test RMSE | Test R² |
-|---|---|---|---|
-| Ridge (baseline) | — | — | — |
-| LightGBM (full features) | ~1.60 | ~1.78 | ~0.64 |
-| LightGBM v2 (improved) | ~1.58 | 1.749 | 0.662 |
-| XGBoost | ~1.582 | — | — |
-| Ensemble (best) | — | see Section 30 | see Section 30 |
+The notebook is designed for local execution on consumer hardware.
 
-All metrics are on `log1p(revenue)` — lower RMSE and higher R² are better. The test set is evaluated exactly once per model to prevent information leakage.
+**Recommended specs:**
+
+- 16–24 GB RAM
+- Python 3.12+
+- Apple Silicon or CUDA-capable GPU (optional but speeds up embedding generation)
+
+The pipeline includes memory diagnostics, embedding caching, garbage collection, and checkpoint saving to reduce crashes during long-running embedding stages.
+
+---
+
+## Machine Learning Pipeline Overview
+
+### 1. Data Acquisition
+
+Loading TMDB and IMDb records, poster retrieval, and reproducible project paths.
+
+### 2. Pre-Cleaning EDA
+
+Missing-value analysis, duplicate detection, financial outlier inspection, and language/country distributions.
+
+### 3. Data Merging
+
+TMDB ↔ IMDb joins, director and cast mapping, and ID consistency validation.
+
+### 4. Data Cleaning
+
+Removing unreleased films and invalid financial records, deduplicating titles, enforcing structural completeness, and defining supervised targets.
+
+### 5. Leakage Prevention
+
+Explicit exclusion of `vote_count`, `vote_average`, and `popularity`. Temporal split ordered chronologically by release date: 70% train / 15% validation / 15% test.
+
+### 6. Feature Engineering
+
+**Structured features:** inflation-adjusted budget, runtime, release month/year, language indicators, country indicators, sequel flags.
+
+**Genre features:** one-hot encoded genres.
+
+**Synopsis embeddings:** `all-MiniLM-L6-v2`, upgraded to `all-mpnet-base-v2`.
+
+**Poster embeddings:** CLIP visual embeddings with PCA dimensionality reduction.
+
+**Talent-history features:** leakage-safe historical statistics (director median revenue, cast median revenue) computed strictly from past films only.
+
+### 7. Modeling
+
+Ridge Regression, LightGBM, XGBoost, CatBoost, Stacking Ensemble, and Weighted Average Ensemble.
+
+### 8. Interpretability
+
+SHAP importance analysis, beeswarm plots, residual analysis, and ablation studies.
+
+---
+
+## Notebook Sections
+
+1. Project Overview
+2. Data Acquisition
+3. Pre-Cleaning EDA
+4. Data Merging
+5. Data Cleaning
+6. Post-Cleaning EDA
+7. Temporal Train / Val / Test Split
+8. Leakage Analysis
+9. Feature Engineering
+10. Multimodal Fusion
+11. Baseline Modeling
+12. Evaluation Metrics
+13. LightGBM Modeling
+14. Ablation Study
+15. SHAP Interpretability
+16. Error Analysis
+17. Final Test Evaluation
+18. Pitfalls Checklist
+19. Improved Pipeline (inflation-adjusted budget, poster PCA, MPNet embeddings, Optuna tuning, dedicated classifier)
+20. Improved Final Evaluation
+21. Baseline vs. Improved Comparison
+22. Final Pitfalls Checklist
+23. Ensemble Learning Motivation
+24. Additional Dependencies
+25. XGBoost
+26. CatBoost
+27. Residual Diversity Analysis
+28. Stacking Ensemble
+29. Weighted Average Ensemble
+30. Ensemble Final Evaluation
+31. Full Model Comparison
+32. Poster Embedding Ablation
+33. Final Conclusions
+
+---
+
+## Reproducibility
+
+The project emphasizes strict reproducibility throughout:
+
+- Fixed `SEED = 42` across all models
+- Train-only fitting of scalers and PCA
+- Chronological train/val/test split with no data leakage
+- Cached embeddings for deterministic re-runs
+- No test-set tuning at any stage
+
+---
+
+## Limitations
+
+- Strong temporal distribution shift after 2017
+- Limited franchise and IP metadata
+- Cold-start problem for debut talent
+- Imperfect pre-release information boundary
+- Significant irreducible uncertainty inherent to film revenue forecasting
+
+---
+
+## Future Work
+
+- Larger multimodal vision-language encoders
+- Franchise and IP knowledge graphs
+- Bayesian talent priors
+- Streaming-era adjustment features
+- Transformer-based tabular fusion
+- Uncertainty calibration
+- Hierarchical temporal models
+
+---
+
+## Authors
+
+Developed as a full-course machine learning engineering project at **IE University** focused on multimodal learning, leakage prevention, feature engineering, reproducible ML workflows, model interpretability, ensemble learning, and scientific evaluation.
